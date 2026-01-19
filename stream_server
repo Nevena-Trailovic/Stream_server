@@ -1,0 +1,110 @@
+// konekcioni servis
+#include <iostream>
+#include<vector>
+#include<map>
+#include<string>
+#include<WinSock2.h>
+#include<WS2tcpip.h>   // za konverziju adresa inet_addr, inet_ntoa, inet_pton, inet_ntop, getaddrinfo - dns lookup, getnameinfo - reverse dns
+#pragma comment(lib, "ws2_32.lib") // linkuje Winsock biblioteku
+#include<thread>
+using namespace std;
+
+#define BUF_SIZE 1024  
+//#define SERVER_PORT 8888  
+
+void ExitWithError(const string& message)
+{
+    cout << message << "Error code: " << WSAGetLastError() << endl;
+    WSACleanup();   
+    exit(1);
+}
+void printMessage(const string& message, int len)
+{
+    cout << "Primljena poruka:";
+    for (auto i = 0; i < len; cout << message[i++]);
+    cout << endl;
+}
+void handleClient(SOCKET clientSock)
+{
+    // prima poruku i salje nazad
+    vector<char> echoBuf(BUF_SIZE);
+    int recvMsgSize;
+
+    while ((recvMsgSize = recv(clientSock, echoBuf.data(), echoBuf.size(), 0)) > 0)
+    {
+        printMessage(echoBuf.data(), recvMsgSize);
+        
+        if (send(clientSock, echoBuf.data(), recvMsgSize, 0) != recvMsgSize)
+        {
+            cout << "Slanje neuspesno!" << endl;
+            break;
+        }
+    }
+    cout << "Klijent se diskonektovao. " << endl;
+    closesocket(clientSock);
+}
+
+int main()
+{
+    int serverPort;
+    cout << "Unesite port za server: ";
+    cin >> serverPort;
+    WSAData wsa;    
+    SOCKET listenSock;
+    if (WSAStartup(0x0202, &wsa) != 0)   
+        ExitWithError("Startup failed.");
+
+    // kreiranje listen soketa - soket za osluskivanje, ne za komunikaciju
+    if ((listenSock = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)   
+       
+        ExitWithError("Listening socket not created");
+
+    sockaddr_in server;  
+    server.sin_family = AF_INET; 
+    server.sin_addr.s_addr = INADDR_ANY;  
+    server.sin_port = htons(serverPort);  
+
+    if (bind(listenSock, (struct sockaddr*)&server, sizeof(server)) == SOCKET_ERROR)  
+        ExitWithError("bind() failed!");
+
+    if ((listen(listenSock, 3)) < 0)  
+        ExitWithError("listen() failed");
+
+    cout << "Server pokrenut na portu " << serverPort << ". Cekam klijente..." << endl;
+
+    while (true)
+    {
+        sockaddr_in client;  
+        int cLen = sizeof(struct sockaddr_in);
+        SOCKET clientSock;
+       
+        if ((clientSock = accept(listenSock, (struct sockaddr*)&client, &cLen)) < 0)   
+            ExitWithError("accept() failed!");
+        
+        cout << "Klijent povezan" << endl;
+
+        thread t(handleClient, clientSock);
+        t.detach();
+
+        //// primanje poruke od klijenta
+        //vector<char> echoBuf(BUF_SIZE);   // dinamicki bafer za primanje
+        //int recvMsgSize = recv(clientSock, echoBuf.data(), echoBuf.size(), 0);  // TCP funkcija za primanje podataka
+        //// blokira dok ne stignu podaci, vraca br primljenih bajtova
+        //if (recvMsgSize < 0) //  = 0 -> klijent zatvorio konekciju, > 0 -> br primljenih bajtova
+        //    ExitWithError("recv() failed");
+        //printMessage(echoBuf.data(), recvMsgSize);
+
+        //// prosledjivane primljenog stringa sve do prekida transmisije,   slanje nazad
+        //while (recvMsgSize > 0)  // sve dok klijent salje podatke, salje nazad klijentu, ceka novu poruku
+        //{
+        //    if (send(clientSock, echoBuf.data(), recvMsgSize, 0) != recvMsgSize)
+        //        ExitWithError("send() failed");
+        //    if ((recvMsgSize = recv(clientSock, echoBuf.data(), echoBuf.size(), 0)) < 0)
+        //        ExitWithError("recv() failed");
+        //    printMessage(echoBuf.data(), recvMsgSize);
+        //}
+        //closesocket(clientSock); // zatvara klijentskog soketa nakon komunikacije
+    }   
+    closesocket(listenSock);
+    WSACleanup();
+}
